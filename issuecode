@@ -1,0 +1,21 @@
+test("opens the modal when modalRef's open() is called", async () => {
+  const mockModalRef = { current: { open: jest.fn(), close: jest.fn() } };
+
+  render(
+    <ConfirmationModal
+      modalRef={mockModalRef}
+      api={mockApi}
+      onClose={mockOnClose}
+    />
+  );
+
+  // Simulate modal opening
+  act(() => {
+    mockModalRef.current.open();
+  });
+
+  // Wait for the modal text to appear
+  const modalText = await screen.findByText("Are you sure you want to cancel your rate switch?");
+
+  expect(modalText).toBeInTheDocument();
+});
