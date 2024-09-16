@@ -1,12 +1,11 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useNavigate } from "react-router-dom";
-import ConfirmationModal from "./ConfirmationModal";
+import { ConfirmationModal } from "./modal";
 import { fetchFromEPS } from "../utils/utility";
 import { adobeConfigYourMortgages } from "../app/analytics/config/adobeConfigYourMortgages";
 import { EPS_END_POINTS } from "../constants/constant";
 
-// Mock the necessary modules
 jest.mock("react-router-dom", () => ({
   useNavigate: jest.fn(),
 }));
@@ -18,6 +17,7 @@ describe("ConfirmationModal Component", () => {
   };
   const mockNavigate = jest.fn();
   const mockOnClose = jest.fn();
+  const mockModalRef = { current: { open: jest.fn(), close: jest.fn() } };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -25,7 +25,6 @@ describe("ConfirmationModal Component", () => {
   });
 
   test("renders the ConfirmationModal component", () => {
-    const mockModalRef = { current: { open: jest.fn(), close: jest.fn() } };
     render(
       <ConfirmationModal
         modalRef={mockModalRef}
@@ -34,22 +33,14 @@ describe("ConfirmationModal Component", () => {
       />
     );
 
-    // Check that the modal content is rendered
-    expect(
-      screen.getByText("Are you sure you want to cancel your rate switch?")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "You won’t be able to apply for a new rate until your cancellation is completed. This could take up to three working days."
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByText("Are you sure you want to cancel your rate switch?")).toBeInTheDocument();
+    expect(screen.getByText("You won't be able to apply for a new rate until your cancellation is completed. This could take up to three working days.")).toBeInTheDocument();
+    expect(screen.getByText("Yes, cancel rate switch")).toBeInTheDocument();
+    expect(screen.getByText("Go back")).toBeInTheDocument();
   });
 
   test("handles the 'Yes, cancel rate switch' button click", async () => {
-    const mockModalRef = { current: { open: jest.fn(), close: jest.fn() } };
-    const mockLoaderRef = { current: { open: jest.fn(), close: jest.fn() } };
-    const mockResponse = { status: "success" };
-    fetchFromEPS.mockResolvedValue({ res: mockResponse });
+    fetchFromEPS.mockResolvedValueOnce({ isError: false });
 
     render(
       <ConfirmationModal
@@ -59,43 +50,68 @@ describe("ConfirmationModal Component", () => {
       />
     );
 
-    const yesCancelButton = screen.getByText("Yes, cancel rate switch");
-    fireEvent.click(yesCancelButton);
+    fireEvent.click(screen.getByText("Yes, cancel rate switch"));
 
-    // Loader should open
     await waitFor(() => {
-      expect(mockModalRef.current.open).toHaveBeenCalled();
-    });
-
-    // Mock API call
-    await waitFor(() => {
-      expect(fetchFromEPS).toHaveBeenCalledWith(
-        EPS_END_POINTS.YES_CANCEL_RATE,
-        mockApi
-      );
-    });
-
-    // Loader should close after API call
-    await waitFor(() => {
-      expect(mockModalRef.current.close).toHaveBeenCalled();
-    });
-
-    // Navigate to success page
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/successPage", {
-        state: mockResponse,
+      expect(fetchFromEPS).toHaveBeenCalledWith(EPS_END_POINTS.AUDIT_EVENTS, mockApi, {
+        data: { attributes: [{ auditEventId: "823856" }] },
+      });
+      expect(fetchFromEPS).toHaveBeenCalledWith(EPS_END_POINTS.SEND_ALERT, mockApi);
+      expect(mockNavigate).toHaveBeenCalledWith("/successPage");
+      expect(mockApi.tagger.tag).toHaveBeenCalledWith(adobeConfigYourMortgages.pageNames.yesCancelRateSwitch);
+      expect(mockApi.tagger.tag).toHaveBeenCalledWith(adobeConfigYourMortgages.pageNames.navigate, {
+        pageName: "Summary",
+        navUrl: "Complete",
       });
     });
+  });
 
-    // Tagging should be triggered
-    expect(mockApi.tagger.tag).toHaveBeenCalledWith(
-      adobeConfigYourMortgages.pageNames.yesCancelRateSwitch
+  test("handles API error when cancelling rate switch", async () => {
+    fetchFromEPS.mockResolvedValueOnce({ isError: false }); // For audit call
+    fetchFromEPS.mockResolvedValueOnce({ isError: true }); // For send alert call
+
+    render(
+      <ConfirmationModal
+        modalRef={mockModalRef}
+        api={mockApi}
+        onClose={mockOnClose}
+      />
     );
+
+    fireEvent.click(screen.getByText("Yes, cancel rate switch"));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/errorPage", { state: { tryAgain: "confirmation" } });
+      expect(mockApi.tagger.tag).toHaveBeenCalledWith(adobeConfigYourMortgages.pageNames.navigate, {
+        pageName: "Summary",
+        navUrl: "Error",
+      });
+    });
+  });
+
+  test("handles exception when cancelling rate switch", async () => {
+    fetchFromEPS.mockRejectedValueOnce(new Error("API error"));
+
+    render(
+      <ConfirmationModal
+        modalRef={mockModalRef}
+        api={mockApi}
+        onClose={mockOnClose}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Yes, cancel rate switch"));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/errorPage", { state: { tryAgain: "confirmation" } });
+      expect(mockApi.tagger.tag).toHaveBeenCalledWith(adobeConfigYourMortgages.pageNames.navigate, {
+        pageName: "Summary",
+        navUrl: "Error",
+      });
+    });
   });
 
   test("handles the 'Go back' button click", () => {
-    const mockModalRef = { current: { open: jest.fn(), close: jest.fn() } };
-
     render(
       <ConfirmationModal
         modalRef={mockModalRef}
@@ -104,64 +120,9 @@ describe("ConfirmationModal Component", () => {
       />
     );
 
-    const goBackButton = screen.getByText("Go back");
-    fireEvent.click(goBackButton);
+    fireEvent.click(screen.getByText("Go back"));
 
-    // Modal should close
     expect(mockOnClose).toHaveBeenCalled();
-
-    // Tagging should be triggered
-    expect(mockApi.tagger.tag).toHaveBeenCalledWith(
-      adobeConfigYourMortgages.pageNames.goBack
-    );
-  });
-
-  test("handles failure response from the API call", async () => {
-    const mockModalRef = { current: { open: jest.fn(), close: jest.fn() } };
-    const mockLoaderRef = { current: { open: jest.fn(), close: jest.fn() } };
-    const mockResponse = { status: "error" };
-    fetchFromEPS.mockResolvedValue({ res: mockResponse });
-
-    render(
-      <ConfirmationModal
-        modalRef={mockModalRef}
-        api={mockApi}
-        onClose={mockOnClose}
-      />
-    );
-
-    const yesCancelButton = screen.getByText("Yes, cancel rate switch");
-    fireEvent.click(yesCancelButton);
-
-    // Loader should open
-    await waitFor(() => {
-      expect(mockModalRef.current.open).toHaveBeenCalled();
-    });
-
-    // Mock API call
-    await waitFor(() => {
-      expect(fetchFromEPS).toHaveBeenCalledWith(
-        EPS_END_POINTS.YES_CANCEL_RATE,
-        mockApi
-      );
-    });
-
-    // Loader should close after API call
-    await waitFor(() => {
-      expect(mockModalRef.current.close).toHaveBeenCalled();
-    });
-
-    // Navigate to error page
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/errorPage", {
-        state: mockResponse,
-      });
-    });
-
-    // Tagging should be triggered
-    expect(mockApi.tagger.tag).toHaveBeenCalledWith(
-      adobeConfigYourMortgages.pageNames.navigate,
-      { pageName: "Summary", navUrl: "Error" }
-    );
+    expect(mockApi.tagger.tag).toHaveBeenCalledWith(adobeConfigYourMortgages.pageNames.goBack);
   });
 });
