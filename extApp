@@ -1,0 +1,56 @@
+describe('exitApplication', () => {
+  afterEach(() => {
+    // Clean up and restore all mocks after each test
+    jest.restoreAllMocks();
+  });
+
+  it('should handle iOS devices', () => {
+    // Mock iOS platform
+    Object.defineProperty(navigator, 'platform', {
+      value: 'iPad',
+      configurable: true,
+    });
+    global.window.webkit = {
+      messageHandlers: { BMBiOSHandler: { postMessage: jest.fn() } },
+    };
+
+    exitApplication();
+
+    expect(global.window.webkit.messageHandlers.BMBiOSHandler.postMessage).toHaveBeenCalledWith({
+      name: 'back',
+      shouldRefresh: false,
+    });
+  });
+
+  it('should handle Android devices', () => {
+    // Mock Android userAgent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Android',
+      configurable: true,
+    });
+    global.mca2JavaScriptInterface = { onEventFired: jest.fn() };
+
+    exitApplication();
+
+    expect(global.mca2JavaScriptInterface.onEventFired).toHaveBeenCalledWith(
+      'exitMca2Journey',
+      JSON.stringify({ shouldRefresh: false })
+    );
+  });
+
+  it('should handle non-iOS and non-Android devices', () => {
+    // Mock a non-mobile platform (Windows)
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Windows',
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Windows NT',
+      configurable: true,
+    });
+
+    const result = exitApplication();
+
+    expect(result).toBeUndefined(); // No action should be taken for other platforms
+  });
+});
